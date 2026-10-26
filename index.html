@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>MMO Sim</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family:-apple-system,system-ui,sans-serif; color:#fff; overscroll-behavior:none; position:fixed; }
+  #c { position:fixed; inset:0; width:100%; height:100%; touch-action:none; -webkit-touch-callout:none; display:block; }
+  .hud { position:fixed; pointer-events:none; z-index:10; }
+  #topHud { top:0; left:0; right:0; padding:8px 12px; padding-top:max(8px, env(safe-area-inset-top)); display:flex; flex-direction:column; gap:4px; }
+  .row { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; text-shadow:0 1px 3px #000; }
+  .bar { flex:1; height:12px; background:rgba(0,0,0,0.55); border-radius:6px; overflow:hidden; position:relative; border:1px solid rgba(255,255,255,0.15); }
+  .barFill { height:100%; transition:width 0.15s; }
+  .barText { position:absolute; inset:0; text-align:center; line-height:12px; font-size:9px; font-weight:700; }
+  #hpFill { background:linear-gradient(90deg,#e33,#f66); }
+  #xpFill { background:linear-gradient(90deg,#38f,#6af); }
+  #rightBtns { top:max(80px, calc(env(safe-area-inset-top) + 80px)); right:8px; display:flex; flex-direction:column; gap:6px; pointer-events:auto; }
+  .btn { width:58px; height:44px; background:rgba(20,30,45,0.88); border:1px solid rgba(100,180,255,0.45); border-radius:8px; color:#cde; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; text-align:center; padding:2px; line-height:1.1; }
+  #bottomBtns { bottom:max(20px, env(safe-area-inset-bottom)); right:20px; display:flex; flex-direction:column; gap:10px; pointer-events:auto; }
+  .actionBtn { width:66px; height:66px; border-radius:50%; background:rgba(60,120,200,0.75); border:2px solid rgba(140,200,255,0.85); color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1; box-shadow:0 2px 12px rgba(0,0,0,0.4); }
+  .actionBtn.pvp { background:rgba(200,60,60,0.75); border-color:rgba(255,140,140,0.85); }
+  .actionBtn.active { box-shadow:0 0 16px rgba(140,220,255,0.9); }
+  #joyArea { bottom:max(20px, env(safe-area-inset-bottom)); left:20px; width:140px; height:140px; pointer-events:none; }
+  #joyBase { position:absolute; inset:0; border-radius:50%; background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.18); }
+  #joyStick { position:absolute; left:50%; top:50%; width:56px; height:56px; margin:-28px 0 0 -28px; border-radius:50%; background:rgba(140,200,255,0.45); border:2px solid rgba(200,230,255,0.7); transition:transform 0.05s; }
+  #panel { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:100; display:none; flex-direction:column; padding:16px; padding-top:max(16px, env(safe-area-inset-top)); padding-bottom:max(16px, env(safe-area-inset-bottom)); overflow-y:auto; }
+  #panel.open { display:flex; }
+  #panel h2 { font-size:18px; margin-bottom:12px; color:#8cf; }
+  #panel .closeBtn { align-self:flex-end; padding:8px 16px; background:#333; border:1px solid #666; border-radius:8px; color:#fff; font-size:14px; margin-bottom:8px; }
+  .item { padding:10px; background:rgba(40,50,70,0.85); border:1px solid #345; border-radius:6px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; font-size:13px; gap:8px; }
+  .item button { padding:6px 12px; background:#2a6; border:0; border-radius:6px; color:#fff; font-size:12px; font-weight:700; }
+  .item button:disabled { background:#444; color:#888; }
+  #log { bottom:180px; left:8px; right:8px; max-height:110px; font-size:11px; text-align:left; display:flex; flex-direction:column-reverse; overflow:hidden; opacity:0.9; }
+  .logEntry { padding:3px 8px; background:rgba(0,0,0,0.5); border-radius:4px; margin-top:2px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="topHud">
+  <div class="row"><span>Lv <span id="lvl">1</span></span><div class="bar"><div class="barFill" id="hpFill" style="width:100%"></div><span class="barText" id="hpText">100/100</span></div></div>
+  <div class="row"><span>XP</span><div class="bar"><div class="barFill" id="xpFill" style="width:0%"></div></div></div>
+  <div class="row"><span>💰 <span id="gold">50</span></span><span style="flex:1"></span><span>👥 <span id="online">1240</span> online</span></div>
+</div>
+
+<div class="hud" id="rightBtns">
+  <button class="btn" data-panel="inv">🎒<br>Сумка</button>
+  <button class="btn" data-panel="guild">🛡️<br>Гильдия</button>
+  <button class="btn" data-panel="party">👥<br>Группа</button>
+  <button class="btn" data-panel="upgrade">⚒️<br>Апгрейд</button>
+</div>
+
+<div class="hud" id="bottomBtns">
+  <button class="actionBtn active" id="autoBtn">⚔️<br>Авто</button>
+  <button class="actionBtn pvp" id="pvpBtn">PvP<br>OFF</button>
+</div>
+
+<div class="hud" id="joyArea"><div id="joyBase"></div><div id="joyStick"></div></div>
+
+<div class="hud" id="log"></div>
+
+<div id="panel">
+  <button class="closeBtn">Закрыть ✕</button>
+  <h2 id="panelTitle"></h2>
+  <div id="panelBody"></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============ SCENE ============ */
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x152030);
+scene.fog = new THREE.Fog(0x152030, 45, 95);
+
+const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 200);
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+scene.add(new THREE.HemisphereLight(0xaaccff, 0x223344, 1.2));
+const sun = new THREE.DirectionalLight(0xffeedd, 1.5);
+sun.position.set(20, 30, 15);
+scene.add(sun);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(200, 200),
+  new THREE.MeshStandardMaterial({color: 0x2a4a2a})
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(200, 40, 0x335555, 0x223333);
+grid.position.y = 0.01;
+scene.add(grid);
+
+/* ============ TREES ============ */
+function makeTree(){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 1.5, 6),
+    new THREE.MeshStandardMaterial({color:0x5a3a20}));
+  trunk.position.y = 0.75; g.add(trunk);
+  const fol = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 7),
+    new THREE.MeshStandardMaterial({color:0x2a6a3a}));
+  fol.position.y = 2.5; g.add(fol);
+  return g;
+}
+for(let i=0;i<42;i++){
+  const x = (Math.random()-0.5)*160, z = (Math.random()-0.5)*160;
+  if(Math.hypot(x,z) < 14) continue;
+  const t = makeTree();
+  t.position.set(x, 0, z);
+  t.rotation.y = Math.random()*Math.PI*2;
+  scene.add(t);
+}
+
+/* ============ CHARACTER FACTORY ============ */
+function makeCharacter(color){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.7, 4, 8),
+    new THREE.MeshStandardMaterial({color}));
+  body.position.y = 0.9; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 10),
+    new THREE.MeshStandardMaterial({color:0xffddaa}));
+  head.position.y = 1.75; g.add(head);
+  const sw = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 0.08),
+    new THREE.MeshStandardMaterial({color:0xaaaaaa, metalness:0.7, roughness:0.3}));
+  sw.position.set(0.5, 1, 0); sw.rotation.z = -0.3; g.add(sw);
+  return g;
+}
+
+/* ============ HEALTH BARS ============ */
+function makeBar(){
+  const c = document.createElement('canvas'); c.width=128; c.height=24;
+  const ctx = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({map:tex, depthTest:false, depthWrite:false, transparent:true});
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2, 0.375, 1);
+  sprite.position.y = 2.6;
+  return {sprite, canvas:c, ctx, tex};
+}
+function drawBar(bar, ratio, color='#f44'){
+  const {ctx, canvas, tex} = bar;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0,6,128,14);
+  ctx.fillStyle = color;
+  ctx.fillRect(2,8, 124*Math.max(0,ratio), 10);
+  tex.needsUpdate = true;
+}
+
+/* ============ PLAYER ============ */
+const player = {
+  mesh: makeCharacter(0x44eecc),
+  hp: 100, maxHp: 100,
+  level: 1, xp: 0, xpNext: 100,
+  gold: 50,
+  atk: 15, def: 5,
+  weaponLvl: 1, armorLvl: 1,
+  atkCD: 0,
+  autoAttack: true,
+  pvpMode: false,
+  dead: false,
+  respawnTimer: 0,
+};
+player.mesh.position.set(0, 0, 0);
+scene.add(player.mesh);
+
+/* ============ BOTS (fake players) ============ */
+const botNames = ["Aurora","Blaze","Cipher","Drakon","Echo","Frost","Ghost","Hydra","Iris","Jinx","Kira","Lumen"];
+const botGuilds = ["Рандомы","Тьма","Свет","Орден"];
+const bots = [];
+for(let i=0;i<10;i++){
+  const color = new THREE.Color().setHSL(Math.random(), 0.6, 0.55);
+  const mesh = makeCharacter(color);
+  const a = Math.random()*Math.PI*2, d = 8 + Math.random()*35;
+  mesh.position.set(Math.cos(a)*d, 0, Math.sin(a)*d);
+  scene.add(mesh);
+  const bar = makeBar(); mesh.add(bar.sprite);
+  drawBar(bar, 1, '#4cf');
+  bots.push({
+    name: botNames[i], mesh, bar,
+    hp: 120, maxHp: 120,
+    dir: new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5).normalize(),
+    turnTimer: Math.random()*2,
+    speed: 1.2 + Math.random()*1.2,
+    atk: 5 + Math.floor(Math.random()*8),
+    atkCD: 0,
+    level: 1 + Math.floor(Math.random()*5),
+    guild: botGuilds[Math.floor(Math.random()*botGuilds.length)],
+  });
+}
+
+/* ============ ENEMIES ============ */
+const enemies = [];
+function spawnEnemy(){
+  const mesh = makeCharacter(0xcc3333);
+  const a = Math.random()*Math.PI*2, d = 12 + Math.random()*30;
+  mesh.position.set(Math.cos(a)*d, 0, Math.sin(a)*d);
+  scene.add(mesh);
+  const bar = makeBar(); mesh.add(bar.sprite);
+  const hp = 50 + Math.floor(Math.random()*50);
+  drawBar(bar, 1, '#f44');
+  enemies.push({
+    mesh, bar, hp, maxHp: hp,
+    gold: 8 + Math.floor(Math.random()*15),
+    xp: 20 + Math.floor(Math.random()*15),
+    dead: false, respawnTimer: 0,
+    atk: 4 + Math.floor(Math.random()*5),
+    atkCD: 0,
+  });
+}
+for(let i=0;i<8;i++) spawnEnemy();
+
+/* ============ FLOATING DAMAGE ============ */
+const floatTexts = [];
+function addFloat(pos, text, color='#fff'){
+  const c = document.createElement('canvas'); c.width=128; c.height=64;
+  const ctx = c.getContext('2d');
+  ctx.font = 'bold 48px -apple-system, sans-serif';
+  ctx.fillStyle = color; ctx.strokeStyle = '#000'; ctx.lineWidth = 6;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.strokeText(text, 64, 32); ctx.fillText(text, 64, 32);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({map:tex, depthTest:false, depthWrite:false, transparent:true});
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*0.6, 2.5, 0));
+  sprite.scale.set(1.6, 0.8, 1);
+  scene.add(sprite);
+  floatTexts.push({sprite, life: 1.2, mat, tex});
+}
+
+/* ============ CONTROLS ============ */
+const joyVec = {x:0, y:0};
+let joyId = null, joyStartX = 0, joyStartY = 0;
+const joyStick = document.getElementById('joyStick');
+
+canvas.addEventListener('touchstart', e => {
+  for(const t of e.changedTouches){
+    if(t.clientX < innerWidth/2 && joyId === null){
+      joyId = t.identifier;
+      joyStartX = t.clientX; joyStartY = t.clientY;
+      e.preventDefault();
+    }
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  for(const t of e.changedTouches){
+    if(t.identifier === joyId){
+      const dx = t.clientX - joyStartX, dy = t.clientY - joyStartY;
+      const len = Math.hypot(dx, dy) || 1;
+      const max = 60, cl = Math.min(len, max);
+      joyVec.x = (dx/len) * (cl/max);
+      joyVec.y = (dy/len) * (cl/max);
+      joyStick.style.transform = `translate(${joyVec.x*42}px, ${joyVec.y*42}px)`;
+      e.preventDefault();
+    }
+  }
+}, {passive:false});
+
+function endTouch(e){
+  for(const t of e.changedTouches){
+    if(t.identifier === joyId){
+      joyId = null; joyVec.x = 0; joyVec.y = 0;
+      joyStick.style.transform = 'translate(0,0)';
+    }
+  }
+}
+canvas.addEventListener('touchend', endTouch);
+canvas.addEventListener('touchcancel', endTouch);
+
+const keys = {};
+addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+/* ============ LOG ============ */
+const logEl = document.getElementById('log');
+function addLog(msg){
+  const d = document.createElement('div');
+  d.className = 'logEntry'; d.textContent = msg;
+  logEl.prepend(d);
+  if(logEl.children.length > 6) logEl.lastChild.remove();
+  setTimeout(() => { if(d.parentNode) d.remove(); }, 5000);
+}
+
+/* ============ HUD ============ */
+function updateHUD(){
+  document.getElementById('lvl').textContent = player.level;
+  document.getElementById('hpText').textContent = `${Math.max(0,Math.round(player.hp))}/${player.maxHp}`;
+  document.getElementById('hpFill').style.width = Math.max(0, player.hp/player.maxHp*100) + '%';
+  document.getElementById('xpFill').style.width = Math.min(100, player.xp/player.xpNext*100) + '%';
+  document.getElementById('gold').textContent = player.gold;
+}
+updateHUD();
+
+let onlineCount = 1240;
+setInterval(() => {
+  onlineCount += Math.floor((Math.random()-0.5)*20);
+  document.getElementById('online').textContent = onlineCount;
+}, 2000);
+
+/* ============ COMBAT HELPERS ============ */
+function onKill(target, isPvp){
+  if(isPvp){
+    addLog(`⚔️ Победа над ${target.name}! (+10💰)`);
+    target.hp = target.maxHp;
+    const a = Math.random()*Math.PI*2, d = 10 + Math.random()*40;
+    target.mesh.position.set(Math.cos(a)*d, 0, Math.sin(a)*d);
+    drawBar(target.bar, 1, '#4cf');
+    player.gold += 10;
+  } else {
+    addLog(`💀 Враг убит (+${target.gold}💰 +${target.xp}xp)`);
+    player.gold += target.gold;
+    player.xp += target.xp;
+    while(player.xp >= player.xpNext){
+      player.xp -= player.xpNext;
+      player.level++;
+      player.xpNext = Math.floor(player.xpNext * 1.4);
+      player.maxHp += 20;
+      player.hp = player.maxHp;
+      addLog(`⭐ Новый уровень: ${player.level}!`);
+    }
+    target.dead = true;
+    target.mesh.visible = false;
+    target.respawnTimer = 8;
+  }
+  updateHUD();
+}
+
+function killPlayer(){
+  player.dead = true; player.hp = 0; player.respawnTimer = 5;
+  player.mesh.visible = false;
+  addLog('💀 Ты погиб. Возрождение через 5 сек...');
+  updateHUD();
+}
+
+function respawnPlayer(){
+  player.dead = false; player.hp = player.maxHp;
+  player.mesh.visible = true;
+  player.mesh.position.set(0, 0, 0);
+  addLog('✨ Возрождение!');
+  updateHUD();
+}
+
+/* ============ MAIN LOOP ============ */
+let lastT = performance.now();
+
+function update(dt){
+  // ---- Player movement ----
+  if(player.dead){
+    player.respawnTimer -= dt;
+    if(player.respawnTimer <= 0) respawnPlayer();
+  } else {
+    let mx = joyVec.x, mz = joyVec.y;
+    if(keys['w'] || keys['arrowup']) mz = -1;
+    if(keys['s'] || keys['arrowdown']) mz = 1;
+    if(keys['a'] || keys['arrowleft']) mx = -1;
+    if(keys['d'] || keys['arrowright']) mx = 1;
+    const len = Math.hypot(mx, mz);
+    if(len > 0.1){
+      mx /= len; mz /= len;
+      const speed = 4.5 * dt;
+      player.mesh.position.x += mx * speed;
+      player.mesh.position.z += mz * speed;
+      player.mesh.rotation.y = Math.atan2(mx, mz);
+    }
+    const p = player.mesh.position, r = Math.hypot(p.x, p.z);
+    if(r > 70){ p.x *= 70/r; p.z *= 70/r; }
+  }
+
+  // ---- Bots wander ----
+  for(const b of bots){
+    if(b.hp <= 0) continue;
+    b.turnTimer -= dt;
+    if(b.turnTimer <= 0){
+      b.turnTimer = 1 + Math.random()*3;
+      b.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+    }
+    b.mesh.position.x += b.dir.x * b.speed * dt;
+    b.mesh.position.z += b.dir.z * b.speed * dt;
+    b.mesh.rotation.y = Math.atan2(b.dir.x, b.dir.z);
+    const r = Math.hypot(b.mesh.position.x, b.mesh.position.z);
+    if(r > 65) b.dir.negate();
+  }
+
+  // ---- Auto-attack ----
+  if(player.autoAttack && !player.dead){
+    player.atkCD -= dt;
+    if(player.atkCD <= 0){
+      let best = null, bestD = Infinity;
+      const px = player.mesh.position.x, pz = player.mesh.position.z;
+      const targets = player.pvpMode ? bots : enemies;
+      for(const t of targets){
+        if(t.dead || t.hp <= 0) continue;
+        const d = Math.hypot(t.mesh.position.x - px, t.mesh.position.z - pz);
+        if(d < 6 && d < bestD){ bestD = d; best = t; }
+      }
+      if(best){
+        player.atkCD = 1.0;
+        const dmg = player.atk + Math.floor(Math.random()*6) - 2;
+        best.hp -= dmg;
+        addFloat(best.mesh.position, '-'+dmg, player.pvpMode ? '#f88' : '#ffcc44');
+        drawBar(best.bar, Math.max(0, best.hp/best.maxHp), player.pvpMode ? '#4cf' : '#f44');
+        if(best.hp <= 0) onKill(best, player.pvpMode);
+      }
+    }
+  }
+
+  // ---- Enemies chase & hit ----
+  for(const e of enemies){
+    if(e.dead) continue;
+    const dx = player.mesh.position.x - e.mesh.position.x;
+    const dz = player.mesh.position.z - e.mesh.position.z;
+    const d = Math.hypot(dx, dz);
+    if(d < 2.5 && !player.dead){
+      e.atkCD -= dt;
+      if(e.atkCD <= 0){
+        e.atkCD = 1.5;
+        const dmg = Math.max(1, e.atk - player.def);
+        player.hp -= dmg;
+        addFloat(player.mesh.position, '-'+dmg, '#f44');
+        if(player.hp <= 0) killPlayer();
+        updateHUD();
+      }
+    } else if(d > 6 && d < 22 && !player.dead){
+      const l = d || 1;
+      e.mesh.position.x += dx/l * 1.8 * dt;
+      e.mesh.position.z += dz/l * 1.8 * dt;
+      e.mesh.rotation.y = Math.atan2(dx, dz);
+    }
+  }
+
+  // ---- Bots attack player in PvP ----
+  if(player.pvpMode && !player.dead){
+    for(const b of bots){
+      if(b.hp <= 0) continue;
+      const d = Math.hypot(b.mesh.position.x-player.mesh.position.x, b.mesh.position.z-player.mesh.position.z);
+      if(d < 3){
+        b.atkCD -= dt;
+        if(b.atkCD <= 0){
+          b.atkCD = 1.6;
+          const dmg = Math.max(1, b.atk - player.def);
+          player.hp -= dmg;
+          addFloat(player.mesh.position, '-'+dmg, '#f88');
+          if(player.hp <= 0) killPlayer();
+          updateHUD();
+        }
+      }
+    }
+  }
+
+  // ---- HP regen ----
+  if(!player.dead && player.hp < player.maxHp && player.hp > 0){
+    player.hp = Math.min(player.maxHp, player.hp + 3*dt);
+    updateHUD();
+  }
+
+  // ---- Float texts ----
+  for(let i = floatTexts.length-1; i >= 0; i--){
+    const ft = floatTexts[i];
+    ft.life -= dt;
+    ft.sprite.position.y += dt * 2.2;
+    ft.mat.opacity = Math.max(0, ft.life/1.2);
+    if(ft.life <= 0){
+      scene.remove(ft.sprite);
+      ft.tex.dispose(); ft.mat.dispose();
+      floatTexts.splice(i, 1);
+    }
+  }
+
+  // ---- Respawn enemies ----
+  for(const e of enemies){
+    if(e.dead){
+      e.respawnTimer -= dt;
+      if(e.respawnTimer <= 0){
+        e.dead = false; e.mesh.visible = true; e.hp = e.maxHp;
+        const a = Math.random()*Math.PI*2, d = 12 + Math.random()*30;
+        e.mesh.position.set(Math.cos(a)*d, 0, Math.sin(a)*d);
+        drawBar(e.bar, 1, '#f44');
+      }
+    }
+  }
+
+  // ---- Camera follow ----
+  const target = new THREE.Vector3(
+    player.mesh.position.x,
+    player.mesh.position.y + 11,
+    player.mesh.position.z + 13
+  );
+  camera.position.lerp(target, 1 - Math.pow(0.001, dt));
+  camera.lookAt(player.mesh.position.x, player.mesh.position.y + 1.5, player.mesh.position.z);
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  update(dt);
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ============ IDLE GOLD ============ */
+setInterval(() => {
+  if(!player.dead){ player.gold += 2; updateHUD(); }
+}, 3000);
+
+/* ============ BUTTONS ============ */
+document.getElementById('autoBtn').addEventListener('click', function(){
+  player.autoAttack = !player.autoAttack;
+  this.classList.toggle('active', player.autoAttack);
+  addLog(player.autoAttack ? '⚔️ Авто-атака ВКЛ' : '⏸️ Авто-атака ВЫКЛ');
+});
+
+document.getElementById('pvpBtn').addEventListener('click', function(){
+  player.pvpMode = !player.pvpMode;
+  this.classList.toggle('active', player.pvpMode);
+  this.innerHTML = `PvP<br>${player.pvpMode ? 'ON' : 'OFF'}`;
+  addLog(player.pvpMode ? '🔥 Режим PvP ВКЛ — атакуешь игроков' : '🌿 Режим PvP ВЫКЛ — атакуешь мобов');
+});
+
+/* ============ PANELS ============ */
+const panel = document.getElementById('panel');
+const panelTitle = document.getElementById('panelTitle');
+const panelBody = document.getElementById('panelBody');
+
+document.querySelectorAll('[data-panel]').forEach(b => {
+  b.addEventListener('click', () => openPanel(b.dataset.panel));
+});
+document.querySelector('.closeBtn').addEventListener('click', () => panel.classList.remove('open'));
+
+function openPanel(type){
+  panelTitle.textContent = {inv:'🎒 Инвентарь', guild:'🛡️ Гильдия', party:'👥 Группа', upgrade:'⚒️ Апгрейд'}[type];
+  panelBody.innerHTML = '';
+  if(type === 'inv') renderInventory();
+  if(type === 'guild') renderGuild();
+  if(type === 'party') renderParty();
+  if(type === 'upgrade') renderUpgrade();
+  panel.classList.add('open');
+}
+
+const inventory = [
+  {name:'Старый меч', icon:'⚔️', lvl:1},
+  {name:'Кожаный доспех', icon:'🛡️', lvl:1},
+  {name:'Зелье HP', icon:'🧪', count:3},
+  {name:'Железная руда', icon:'⛏️', count:12},
+  {name:'Камень усиления', icon:'💎', count:5},
+];
+function renderInventory(){
+  panelBody.innerHTML = inventory.map(it => `
+    <div class="item">
+      <span>${it.icon} ${it.name}${it.count ? ` ×${it.count}` : ''}</span>
+      <span style="opacity:0.7">${it.lvl ? `Lv.${it.lvl}` : ''}</span>
+    </div>`).join('');
+}
+
+const guild = {
+  name:'Рандомы', level:3,
+  members:[
+    {name:'Ты', role:'Лидер', on:true},
+    {name:'Aurora', role:'Офицер', on:true},
+    {name:'Blaze', role:'Боец', on:true},
+    {name:'Cipher', role:'Боец', on:false},
+    {name:'Drakon', role:'Боец', on:true},
+    {name:'Echo', role:'Боец', on:true},
+  ]
+};
+function renderGuild(){
+  panelBody.innerHTML = `
+    <div style="margin-bottom:12px;font-size:14px"><b>${guild.name}</b> — Ур. ${guild.level}<br>Участников: ${guild.members.length}</div>
+    ${guild.members.map(m => `<div class="item"><span>${m.on?'🟢':'⚫'} ${m.name}</span><span style="opacity:0.7">${m.role}</span></div>`).join('')}`;
+}
+
+const party = [
+  {name:'Ты', hp:100, max:100},
+  {name:'Aurora', hp:80, max:100},
+  {name:'Kaito', hp:60, max:100},
+];
+function renderParty(){
+  panelBody.innerHTML = party.map(p => `
+    <div class="item"><span>${p.name}</span><span>${p.hp}/${p.max} HP</span></div>`).join('')
+    + `<div style="margin-top:12px;font-size:12px;opacity:0.7">Имитация группы — в реальной игре участники синхронизируются через сервер.</div>`;
+}
+
+function renderUpgrade(){
+  panelBody.innerHTML = `
+    <div class="item">
+      <span>⚔️ Оружие Lv.${player.weaponLvl}<br><small style="opacity:0.7">Атака: ${player.atk}</small></span>
+      <button id="upW" ${player.gold<50?'disabled':''}>50💰</button>
+    </div>
+    <div class="item">
+      <span>🛡️ Броня Lv.${player.armorLvl}<br><small style="opacity:0.7">Защита: ${player.def}</small></span>
+      <button id="upA" ${player.gold<50?'disabled':''}>50💰</button>
+    </div>
+    <div style="margin-top:12px;font-size:13px;opacity:0.85">Золото: ${player.gold}💰</div>`;
+  document.getElementById('upW').onclick = () => {
+    if(player.gold < 50) return;
+    player.gold -= 50; player.weaponLvl++;
+    player.atk = 10 + player.weaponLvl * 5;
+    addLog(`⚒️ Оружие → Lv.${player.weaponLvl} (атака ${player.atk})`);
+    updateHUD(); renderUpgrade();
+  };
+  document.getElementById('upA').onclick = () => {
+    if(player.gold < 50) return;
+    player.gold -= 50; player.armorLvl++;
+    player.def = 2 + player.armorLvl * 3;
+    addLog(`⚒️ Броня → Lv.${player.armorLvl} (защита ${player.def})`);
+    updateHUD(); renderUpgrade();
+  };
+}
+
+/* ============ START ============ */
+addLog('🌍 Добро пожаловать в MMO-симуляцию!');
+addLog('Двигайся джойстиком слева. Авто-бой уже включён.');
+addLog('Нажми PvP чтобы атаковать «игроков» вместо мобов.');
+</script>
+</body>
+</html>
